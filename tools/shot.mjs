@@ -67,35 +67,39 @@ const outPath = resolve(outArg);
 mkdirSync(dirname(outPath), { recursive: true });
 
 const profile = mkdtempSync(join(tmpdir(), 'vc-shot-'));
-const port = 9300 + Math.floor(Math.random() * 500);
-// xvfb-run's auto display number collides with the stale servers other runs
-// leave behind, so name a display ourselves.
-const display = 200 + Math.floor(Math.random() * 700);
 
-const chrome = spawn(
-  'xvfb-run',
-  [
-    '-n', String(display),
-    '--server-args=-screen 0 1920x1600x24',
-    CHROME,
-    ...CHROME_FLAGS,
-    `--hatch-webgl-allowed-domains-file=${POLICY_FILE}`,
-    `--hatch-webgl-allowed-domains-sha256=${policySha}`,
-    `--user-data-dir=${profile}`,
-    `--remote-debugging-port=${port}`,
-    '--window-size=' + `${width},${height}`,
-    'about:blank',
-  ],
-  { stdio: ['ignore', 'pipe', 'pipe'] },
-);
+// Each attempt gets its own display number and debugging port: the sandbox
+// leaves stale Xvfb servers behind, so a fixed number can already be taken.
+function attemptNumber() {
+  return Math.floor(Math.random() * 900);
+}
 
-let chromeErr = '';
-chrome.stderr.on('data', (b) => { chromeErr += b.toString(); });
-chrome.stdout.on('data', () => {});
+function launch(display, port) {
+  const child = spawn(
+    'xvfb-run',
+    [
+      '-n', String(display),
+      '--server-args=-screen 0 1920x1600x24',
+      CHROME,
+      ...CHROME_FLAGS,
+      `--hatch-webgl-allowed-domains-file=${POLICY_FILE}`,
+      `--hatch-webgl-allowed-domains-sha256=${policySha}`,
+      `--user-data-dir=${profile}-${display}`,
+      `--remote-debugging-port=${port}`,
+      `--window-size=${width},${height}`,
+      'about:blank',
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  const log = [];
+  child.stderr.on('data', (b) => log.push(b.toString()));
+  child.stdout.on('data', () => {});
+  return { child, log };
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function findTarget(timeoutMs = 20000) {
+async function findTarget(port, timeoutMs = 20000) {
   const deadline = Date.now() + timeoutMs;
   let lastErr = '';
   while (Date.now() < deadline) {
@@ -172,67 +176,96 @@ async function connect(wsUrl, timeoutMs = 15000) {
   throw new Error(`could not open devtools socket ${wsUrl}`);
 }
 
-function cleanup() {
-  try { chrome.kill('SIGKILL'); } catch { /* already gone */ }
-}
+/** One capture attempt: launch, attach, navigate, wait, screenshot. */
+async function captureOnce() {
+  const display = attemptNumber();
+  const port = 9300 + attemptNumber();
+  const { child, log } = launch(display, port);
 
-let exitCode = 0;
-try {
-  const target = await findTarget();
-  const cdp = await connect(target.webSocketDebuggerUrl);
-
-  await cdp.send('Page.enable');
-  await cdp.send('Runtime.enable');
-  await cdp.send('Emulation.setDeviceMetricsOverride', {
-    width,
-    height,
-    deviceScaleFactor: 1,
-    mobile: false,
-    screenWidth: width,
-    screenHeight: height,
-  });
-
-  await cdp.send('Page.navigate', { url });
-
-  // Wait for the page's own ready flag, then a short settle for the font and
-  // any canvas repaint; fall back to the plain wait when it never sets it.
-  const deadline = Date.now() + Math.max(waitMs, 2000);
-  let ready = false;
-  while (Date.now() < deadline) {
+  try {
+    let target;
     try {
-      ready = (await cdp.eval("document.documentElement.getAttribute('data-shot-ready') === '1'")) === true;
-    } catch {
-      ready = false;
+      target = await findTarget(port, 18000);
+    } catch (err) {
+      const tail = log.join('').split('\n').filter(Boolean).slice(-4).join(' | ');
+      throw new Error(`${err.message}${tail ? ` [${tail}]` : ''}`);
     }
-    if (ready) break;
-    await sleep(120);
+    const cdp = await connect(target.webSocketDebuggerUrl);
+
+    await cdp.send('Page.enable');
+    await cdp.send('Runtime.enable');
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+      screenWidth: width,
+      screenHeight: height,
+    });
+
+    await cdp.send('Page.navigate', { url });
+
+    // Wait for the page to say it is ready. Cover shots set the flag once the
+    // cover is painted; the editor sets it after the samples load. A page that
+    // never sets it still gets captured, after the same generous deadline.
+    const deadline = Date.now() + Math.max(waitMs, 15000);
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        ready = (await cdp.eval("document.documentElement.getAttribute('data-shot-ready') === '1'")) === true;
+      } catch {
+        ready = false;
+      }
+      if (ready) break;
+      await sleep(150);
+    }
+    await sleep(700);
+
+    const probe = await cdp.eval(
+      "JSON.stringify({title: document.title, w: innerWidth, h: innerHeight," +
+      " ready: document.documentElement.getAttribute('data-shot-ready')," +
+      " canvases: [...document.querySelectorAll('canvas')].map(c => c.width + 'x' + c.height)," +
+      " status: (document.getElementById('status') || {}).textContent || ''," +
+      " chips: document.querySelectorAll('#photoList .chip').length," +
+      " imgs: [...document.images].filter(i => i.complete && i.naturalWidth > 0).length})",
+    );
+    console.log(`page: ${probe}`);
+
+    const shot = await cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: false,
+      fromSurface: true,
+    });
+    if (!shot || !shot.data) throw new Error('captureScreenshot returned no data');
+
+    const bytes = Buffer.from(shot.data, 'base64');
+    writeFileSync(outPath, bytes);
+    console.log(`${outPath}  ${width}x${height}  ${bytes.length} bytes  ready=${ready}`);
+    return ready;
+  } finally {
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
   }
-  await sleep(650);
-
-  const probe = await cdp.eval(
-    "JSON.stringify({title: document.title, w: innerWidth, h: innerHeight," +
-    " ready: document.documentElement.getAttribute('data-shot-ready')," +
-    " canvases: [...document.querySelectorAll('canvas')].map(c => c.width + 'x' + c.height)})",
-  );
-  console.log(`page: ${probe}`);
-
-  const shot = await cdp.send('Page.captureScreenshot', {
-    format: 'png',
-    captureBeyondViewport: false,
-    fromSurface: true,
-  });
-  if (!shot || !shot.data) throw new Error('captureScreenshot returned no data');
-
-  const bytes = Buffer.from(shot.data, 'base64');
-  writeFileSync(outPath, bytes);
-  console.log(`${outPath}  ${width}x${height}  ${bytes.length} bytes  ready=${ready}`);
-} catch (err) {
-  exitCode = 1;
-  console.error(`shot.mjs: ${err instanceof Error ? err.message : String(err)}`);
-  if (chromeErr) console.error(chromeErr.split('\n').slice(-10).join('\n'));
-} finally {
-  cleanup();
-  await sleep(300);
-  if (!existsSync(outPath) && exitCode === 0) exitCode = 1;
-  process.exit(exitCode);
 }
+
+const ATTEMPTS = 3;
+let ready = false;
+let lastError = null;
+for (let i = 1; i <= ATTEMPTS; i++) {
+  try {
+    ready = await captureOnce();
+    lastError = null;
+    if (ready) break;
+  } catch (err) {
+    lastError = err;
+    console.error(`shot.mjs: attempt ${i}/${ATTEMPTS} failed: ${err instanceof Error ? err.message : String(err)}`);
+    // a stale Xvfb name or port is worth retrying on fresh numbers
+  }
+  await sleep(500);
+}
+
+if (lastError) {
+  console.error(`shot.mjs: gave up: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  process.exit(1);
+}
+if (!ready) console.error('shot.mjs: warning — page never signalled data-shot-ready');
+process.exit(existsSync(outPath) ? 0 : 1);
