@@ -1,99 +1,101 @@
-// main.ts — the entrypoint: copies app/ and screenshots/ into the output directory
-// and writes dossier.json there with buildDossier from vendor/makefun-app.ts.
-//
-//   MAKEFUN_OUTPUT_DIR=out node main.ts      (default: /output)
+/**
+ * Vice Coast Cover Studio — entrypoint.
+ *
+ * Copies the two things this entry hands in (app/ and screenshots/) beside this
+ * file into MAKEFUN_OUTPUT_DIR, then writes dossier.json there: the manifest the
+ * bounty's judge reads, built by the vendored buildDossier from exactly the
+ * bytes that were just copied.
+ *
+ * Node 22.18+, standard library only, no flags: `node main.ts`.
+ */
 
-import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { cp, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildDossier } from './vendor/makefun-app.ts';
+import { buildDossier, DossierError } from './vendor/makefun-app.ts';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-
+/** The bounty's caps, as gate.json states them. */
 const CAPS = {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   app_max_files: 993,
   app_max_bytes: 50331648,
   app_path_max_bytes: 1000,
-};
+} as const;
 
-const OUT_DIR = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
+/** What gets copied out, in the order it is copied. */
+const PARTS = ['app', 'screenshots'] as const;
 
-function log(message: string): void {
-  console.log(`[makefun] ${message}`);
+const here = dirname(fileURLToPath(import.meta.url));
+
+function human(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
 }
 
-function fail(message: string): never {
-  console.error(`[makefun] error: ${message}`);
-  process.exit(1);
-}
-
-async function countEntries(dir: string): Promise<number> {
-  let n = 0;
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    n += 1;
-    if (entry.isDirectory()) n += await countEntries(join(dir, entry.name));
+/** Every file under a directory, as paths relative to it, sorted. */
+async function walk(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      for (const child of await walk(full)) out.push(join(entry.name, child));
+    } else if (entry.isFile()) {
+      out.push(entry.name);
+    }
   }
-  return n;
+  return out.sort();
+}
+
+async function copyPart(name: string, target: string): Promise<number> {
+  const source = join(here, name);
+  const destination = join(target, name);
+  await cp(source, destination, { recursive: true, force: true });
+  const files = await walk(destination);
+  let bytes = 0;
+  for (const file of files) bytes += (await stat(join(destination, file))).size;
+  console.log(`  ${name}/  ${String(files.length).padStart(3)} files  ${human(bytes)}`);
+  return bytes;
 }
 
 async function main(): Promise<void> {
-  const appDir = join(HERE, 'app');
-  const shotsDir = join(HERE, 'screenshots');
+  const target = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+  console.log(`Vice Coast Cover Studio → ${target}`);
 
-  if (!existsSync(join(appDir, 'index.html'))) {
-    fail(`no app/index.html beside ${HERE}`);
-  }
-  if (!existsSync(shotsDir)) {
-    fail(`no screenshots/ beside ${HERE}`);
-  }
+  await mkdir(target, { recursive: true });
 
-  const indexStat = await stat(join(appDir, 'index.html'));
-  if (indexStat.size > 1024 * 1024) {
-    fail(`app/index.html is ${indexStat.size} bytes, over the 1 MiB limit`);
-  }
+  let copied = 0;
+  for (const part of PARTS) copied += await copyPart(part, target);
 
-  await mkdir(OUT_DIR, { recursive: true });
-  // a stale copy of app/ would end up in the dossier, so start clean
-  await rm(join(OUT_DIR, 'app'), { recursive: true, force: true });
-  await rm(join(OUT_DIR, 'screenshots'), { recursive: true, force: true });
-
-  await cp(appDir, join(OUT_DIR, 'app'), { recursive: true });
-  await cp(shotsDir, join(OUT_DIR, 'screenshots'), { recursive: true });
-
-  const appEntries = await countEntries(join(OUT_DIR, 'app'));
-  const shots = (await readdir(join(OUT_DIR, 'screenshots'))).filter((n) => !n.startsWith('.'));
-  if (shots.length < 3) {
-    fail(`screenshots/ holds ${shots.length} image(s); the gate wants 3 or 4`);
-  }
-  if (shots.length > CAPS.screenshots.max) {
-    fail(`screenshots/ holds ${shots.length} images; the gate takes at most ${CAPS.screenshots.max}`);
-  }
-
-  // the gate weighs each screenshot on its own, so name the one that is over
-  for (const name of shots.sort()) {
-    const { size } = await stat(join(OUT_DIR, 'screenshots', name));
-    if (size > CAPS.screenshots.max_bytes) {
-      fail(`screenshots/${name} is ${size} bytes, over the ${CAPS.screenshots.max_bytes}-byte limit`);
+  let dossier: Uint8Array;
+  try {
+    dossier = buildDossier(target, CAPS);
+  } catch (err) {
+    if (err instanceof DossierError) {
+      console.error(`dossier: ${err.message}${err.limit ? ` (cap: ${err.limit})` : ''}`);
+      process.exit(1);
     }
+    throw err;
   }
 
-  const dossier = buildDossier(OUT_DIR, CAPS);
-  await writeFile(join(OUT_DIR, 'dossier.json'), dossier);
+  const dossierPath = join(target, 'dossier.json');
+  await writeFile(dossierPath, dossier);
 
-  // dossier.json carries the screenshots as base64, so its file size says nothing
-  // about the source text the judge is shown; report that against its own cap
-  const dossierText = JSON.parse(Buffer.from(dossier).toString('utf8')).text as string;
-  const textBytes = Buffer.byteLength(dossierText, 'utf8');
-  if (textBytes > CAPS.text_max_bytes) {
-    fail(`dossier text is ${textBytes} bytes, over the ${CAPS.text_max_bytes}-byte cap`);
-  }
+  const manifest = JSON.parse(new TextDecoder().decode(dossier)) as {
+    app?: { files?: unknown[]; totalBytes?: number };
+    screenshots?: unknown[];
+  };
+  const listed = manifest.app?.files?.length ?? 0;
+  const shots = manifest.screenshots?.length ?? 0;
 
-  log(`copied app/ (${appEntries} entries) and screenshots/ (${shots.length} images) to ${OUT_DIR}`);
-  log(`wrote dossier.json (${dossier.length} bytes, text ${textBytes}/${CAPS.text_max_bytes})`);
+  console.log(`  dossier.json  ${human(dossier.byteLength)} — ${listed} app files, ${shots} screenshots`);
+  console.log(`wrote ${relative(process.cwd(), dossierPath) || dossierPath}`);
 }
 
-await main();
+main().catch((err: unknown) => {
+  console.error(err instanceof Error ? err.stack ?? err.message : String(err));
+  process.exit(1);
+});

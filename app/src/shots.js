@@ -1,77 +1,119 @@
-// shots.js — the ?shot= modes used for screenshots (and harmless elsewhere).
-//   ?shot=editor        the real editor, sample photos already in the panels
-//   ?shot=cover-square  finished cover, 1024 x 1024
-//   ?shot=cover-tall    finished cover, 864 x 1080
-//   ?shot=cover-wide    finished cover, 1280 x 720
-// An optional &variant=b|c overrides the preset cover.
+/* Vice Coast Cover Studio — the ?shot= modes.
+ *
+ *   ?shot=editor         the normal editor with the sample photos already loaded
+ *   ?shot=cover-square   the finished cover at 1024 × 1024
+ *   ?shot=cover-tall     the finished cover at  864 × 1080
+ *   ?shot=cover-wide     the finished cover at 1280 ×  720
+ *
+ * A cover shot draws through ViceCover.paint(), the same painter the editor
+ * and the PNG export use, so it is the app's own output, not a mock-up.
+ * Add &variant=A|B|C to pick one of the three built-in looks.
+ *
+ * With no ?shot= in the URL nothing here runs beyond reading the parameter.
+ */
+(function (root) {
+  'use strict';
 
-import { renderCover, waitForFonts, DEFAULT_PRESETS } from './cover.js';
+  var NS = (root.ViceCover = root.ViceCover || {});
 
-export const COVER_SHOTS = ['cover-square', 'cover-tall', 'cover-wide'];
+  var SAMPLE_FILES = ['samples/boulevard.png', 'samples/pier.png'];
 
-const COVER_SPECS = {
-  'cover-square': { w: 1024, h: 1024, preset: 'A' },
-  'cover-tall': { w: 864, h: 1080, preset: 'B' },
-  'cover-wide': { w: 1280, h: 720, preset: 'C' },
-};
-
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`could not load ${src}`));
-    img.src = src;
-  });
-}
-
-// Returns true when this shot is a finished-cover render; the editor handles the rest.
-export async function initShotMode(shot, params) {
-  const spec = COVER_SPECS[shot];
-  if (!spec) return false;
-  await renderCoverShot(shot, spec, params);
-  return true;
-}
-
-async function renderCoverShot(shot, spec, params) {
-  const overlay = document.createElement('div');
-  overlay.className = 'shot-stage';
-  const canvas = document.createElement('canvas');
-  canvas.width = spec.w;
-  canvas.height = spec.h;
-  canvas.setAttribute('role', 'img');
-  canvas.setAttribute('aria-label', 'Exported cover art');
-  overlay.appendChild(canvas);
-  document.body.innerHTML = '';
-  document.body.classList.add('shot-mode');
-  document.body.appendChild(overlay);
-
-  const presetName = (params.get('variant') || spec.preset).toUpperCase();
-  const preset = DEFAULT_PRESETS[presetName] || DEFAULT_PRESETS.A;
-  const state = {
-    layout: preset.layout,
-    grade: preset.grade,
-    title: preset.title,
-    subtitle: preset.subtitle,
-    caption: { x: preset.captionX, y: preset.captionY, size: preset.captionSize, align: 'center' },
-    panels: [],
+  var COVER_SPECS = {
+    'cover-square': { w: 1024, h: 1024, preset: 'A' },
+    'cover-tall': { w: 864, h: 1080, preset: 'B' },
+    'cover-wide': { w: 1280, h: 720, preset: 'C' },
   };
 
-  const [first, second] = await Promise.all([
-    loadImage('samples/boulevard.png').catch(() => null),
-    loadImage('samples/pier.png').catch(() => null),
-  ]);
-  const pool = [first, second].filter(Boolean);
-  const count = { triptych: 3, quad: 4, hero: 3 }[preset.layout] || 3;
-  state.panels = Array.from({ length: count }, (_, i) => ({
-    img: pool[i % Math.max(1, pool.length)] || null,
-    zoom: preset.zooms ? preset.zooms[i % preset.zooms.length] : 1,
-    ox: preset.offsets ? preset.offsets[i % preset.offsets.length][0] : 0,
-    oy: preset.offsets ? preset.offsets[i % preset.offsets.length][1] : 0,
-    fit: 'fill',
-  }));
+  function loadPhoto(src) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };
+      img.src = src;
+    });
+  }
 
-  await waitForFonts();
-  const ctx = canvas.getContext('2d');
-  renderCover(ctx, spec.w, spec.h, state);
-  document.documentElement.dataset.shotReady = shot;
-}
+  function loadSamples() {
+    return Promise.all(SAMPLE_FILES.map(loadPhoto));
+  }
+
+  // Build a scene from one of the built-in presets, spreading the photos we
+  // managed to load across the layout's panels.
+  function sceneFromPreset(name, photos) {
+    var preset = NS.PRESETS[name] || NS.PRESETS.A;
+    var layout = NS.layoutById(preset.layout);
+    var pool = photos.filter(function (p) { return p && p.width; });
+    var panels = [];
+    for (var i = 0; i < layout.count; i++) {
+      var look = preset.panels[i] || { zoom: 1, ox: 0, oy: 0 };
+      panels.push({
+        img: pool.length ? pool[i % pool.length] : null,
+        zoom: look.zoom,
+        ox: look.ox,
+        oy: look.oy,
+        mode: 'fill',
+      });
+    }
+    return {
+      layout: preset.layout,
+      look: preset.look,
+      title: preset.title,
+      subtitle: preset.subtitle,
+      caption: { x: preset.caption.x, y: preset.caption.y, size: preset.caption.size },
+      panels: panels,
+    };
+  }
+
+  function fillFrame(spec, scene) {
+    document.body.classList.add('shot');
+    document.body.innerHTML = '';
+
+    var wrap = document.createElement('div');
+    wrap.className = 'shot-wrap';
+
+    var canvas = document.createElement('canvas');
+    canvas.width = spec.w;
+    canvas.height = spec.h;
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', 'Cover art exported by Vice Coast Cover Studio');
+    wrap.appendChild(canvas);
+    document.body.appendChild(wrap);
+
+    NS.paint(canvas.getContext('2d'), spec.w, spec.h, scene);
+    document.documentElement.setAttribute('data-shot-ready', '1');
+    document.title = 'Cover — Vice Coast Cover Studio';
+  }
+
+  /**
+   * Handles a cover shot. Resolves to true when it rendered one, false when
+   * the caller should carry on and build the editor (which owns ?shot=editor).
+   */
+  function runCoverShot(shot, params) {
+    var spec = COVER_SPECS[shot];
+    if (!spec) return Promise.resolve(false);
+
+    var variant = (params.get('variant') || spec.preset).toUpperCase();
+
+    return loadSamples()
+      .then(function (photos) {
+        return NS.fontsReady().then(function () { return photos; });
+      })
+      .then(function (photos) {
+        fillFrame(spec, sceneFromPreset(variant, photos));
+        return true;
+      })
+      .catch(function (err) {
+        document.body.innerHTML = '<pre class="shot-error">Cover render failed: ' +
+          String(err && err.message ? err.message : err) + '</pre>';
+        return true;
+      });
+  }
+
+  NS.shots = {
+    SAMPLE_FILES: SAMPLE_FILES,
+    COVER_SPECS: COVER_SPECS,
+    loadSamples: loadSamples,
+    loadPhoto: loadPhoto,
+    runCoverShot: runCoverShot,
+  };
+})(window);

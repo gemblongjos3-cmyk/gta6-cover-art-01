@@ -3,112 +3,141 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vice Coast Cover Studio — multi-panel cover art</title>
+<title>Vice Coast Cover Studio — turn photos into multi-panel cover art</title>
+<meta name="description" content="Turn your own photos and a caption into GTA-style multi-panel cover art. Crops, colour grades, bold lettering, PNG export at three sizes. Runs entirely offline.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<a class="skip-link" href="#stage">Skip to the cover preview</a>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true"></span>
-    <span class="brand-text">VICE COAST <b>COVER STUDIO</b></span>
+<a class="skip" href="#preview">Skip to the cover preview</a>
+
+<header class="bar">
+  <div class="bar-brand">
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="26" height="26" focusable="false" aria-hidden="true">
+        <defs>
+          <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffd06a"/>
+            <stop offset="0.55" stop-color="#ff4d8d"/>
+            <stop offset="1" stop-color="#7b3cff"/>
+          </linearGradient>
+        </defs>
+        <circle cx="16" cy="12" r="7" fill="url(#markGrad)"/>
+        <rect x="2" y="22" width="28" height="2.4" rx="1.2" fill="url(#markGrad)"/>
+        <rect x="2" y="26.6" width="18" height="2.4" rx="1.2" fill="#39e6ff"/>
+      </svg>
+    </span>
+    <span class="bar-title">VICE COAST <em>COVER STUDIO</em></span>
   </div>
-  <p class="tagline">Your photos, six panels of neon, one cover out.</p>
-  <div class="topbar-actions">
+  <p class="bar-note" id="barNote">Photos stay on your machine.</p>
+  <div class="bar-actions">
     <span id="status" class="status" role="status" aria-live="polite">Ready</span>
-    <button id="exportBtn" class="btn btn-primary" type="button">Export PNG</button>
+    <button id="exportTop" class="btn btn-go" type="button" accesskey="e">Export PNG</button>
   </div>
 </header>
 
-<main class="workspace">
-  <aside class="sidebar" aria-label="Editor controls">
-    <section class="group">
-      <h2 class="group-title">Photos</h2>
-      <div class="row">
-        <label class="btn btn-file" for="photoInput" tabindex="0">Add photos…</label>
-        <input id="photoInput" class="visually-hidden" type="file" accept="image/*" multiple>
-        <button id="sampleBtn" class="btn" type="button">Load sample set</button>
+<main class="layout">
+  <aside class="controls" aria-label="Cover controls">
+
+    <section class="card">
+      <h2 class="card-title" id="h-photos">1 · Photos</h2>
+      <div class="btn-row">
+        <label class="btn btn-file" for="fileInput">
+          Choose photos…
+        </label>
+        <input id="fileInput" class="sr" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple>
+        <button id="sampleBtn" class="btn" type="button">Use samples</button>
       </div>
-      <p class="hint">Photos are read on your own machine. Nothing is uploaded.</p>
-      <ul id="photoList" class="photo-list" aria-label="Photos in this cover"></ul>
-      <div class="row">
-        <button id="clearPhotosBtn" class="btn btn-quiet" type="button">Clear photos</button>
+      <p class="hint" id="photoHint">One photo can fill every panel, or give each panel its own.</p>
+      <ul id="photoList" class="chips" aria-label="Photos in this cover"></ul>
+      <div class="btn-row">
+        <button id="clearBtn" class="btn btn-dim" type="button">Remove all</button>
       </div>
     </section>
 
-    <section class="group">
-      <h2 class="group-title">Layout</h2>
-      <div id="layoutPicker" class="segmented" role="radiogroup" aria-label="Cover layout"></div>
-      <p id="layoutBlurb" class="hint"></p>
+    <section class="card">
+      <h2 class="card-title" id="h-layout">2 · Layout</h2>
+      <div id="layoutRow" class="seg" role="radiogroup" aria-labelledby="h-layout"></div>
+      <p class="hint" id="layoutHint"></p>
     </section>
 
-    <section class="group">
-      <h2 class="group-title">Colour grade</h2>
-      <div id="gradePicker" class="segmented" role="radiogroup" aria-label="Colour grade"></div>
-      <p id="gradeBlurb" class="hint"></p>
+    <section class="card">
+      <h2 class="card-title" id="h-look">3 · Colour grade</h2>
+      <div id="lookRow" class="seg" role="radiogroup" aria-labelledby="h-look"></div>
+      <p class="hint" id="lookHint"></p>
     </section>
 
-    <section class="group">
-      <h2 class="group-title">Caption</h2>
+    <section class="card">
+      <h2 class="card-title" id="h-text">4 · Caption</h2>
       <label class="field">
-        <span>Title</span>
-        <input id="titleInput" type="text" maxlength="34" value="VICE COAST" autocomplete="off">
+        <span class="field-label">Title</span>
+        <input id="titleIn" type="text" maxlength="32" value="VICE COAST" autocomplete="off" spellcheck="false">
       </label>
       <label class="field">
-        <span>Subtitle</span>
-        <input id="subtitleInput" type="text" maxlength="60" value="SIX NIGHTS ON THE STRIP" autocomplete="off">
+        <span class="field-label">Subtitle</span>
+        <input id="subIn" type="text" maxlength="54" value="SIX NIGHTS ON THE STRIP" autocomplete="off" spellcheck="false">
       </label>
       <label class="field">
-        <span>Lettering size</span>
-        <input id="captionSize" type="range" min="0.6" max="1.8" step="0.02" value="1">
+        <span class="field-label">Lettering size</span>
+        <input id="sizeIn" type="range" min="0.55" max="1.7" step="0.02" value="1">
       </label>
-      <div class="row">
-        <button id="captionCenterBtn" class="btn btn-quiet" type="button">Centre lettering</button>
+      <div class="btn-row">
+        <button id="centerBtn" class="btn btn-dim" type="button">Reset lettering position</button>
       </div>
       <p class="hint">Drag the lettering on the preview to place it.</p>
     </section>
 
-    <section class="group">
-      <h2 class="group-title">Panel</h2>
-      <p id="panelLabel" class="hint">Panel 1 of 3</p>
+    <section class="card">
+      <h2 class="card-title" id="h-panel">5 · Selected panel</h2>
+      <p class="hint" id="panelName">Panel 1 of 3</p>
       <label class="field">
-        <span>Zoom</span>
-        <input id="zoomRange" type="range" min="1" max="3" step="0.01" value="1">
+        <span class="field-label">Zoom</span>
+        <input id="zoomIn" type="range" min="1" max="3" step="0.01" value="1">
       </label>
-      <div class="row">
-        <button id="fitBtn" class="btn btn-quiet" type="button" aria-pressed="false">Fit photo</button>
-        <button id="fillBtn" class="btn btn-quiet" type="button" aria-pressed="true">Fill panel</button>
+      <div class="btn-row">
+        <button id="fillBtn" class="btn btn-dim" type="button" aria-pressed="true">Fill</button>
+        <button id="fitBtn" class="btn btn-dim" type="button" aria-pressed="false">Fit</button>
       </div>
-      <div class="row">
-        <button id="resetPanelBtn" class="btn btn-quiet" type="button">Reset crop</button>
-        <button id="panelPrev" class="btn btn-quiet" type="button" aria-label="Previous panel">◀</button>
-        <button id="panelNext" class="btn btn-quiet" type="button" aria-label="Next panel">▶</button>
+      <div class="btn-row">
+        <button id="resetPanel" class="btn btn-dim" type="button">Reset crop</button>
+        <button id="prevPanel" class="btn btn-dim" type="button" aria-label="Previous panel">◀</button>
+        <button id="nextPanel" class="btn btn-dim" type="button" aria-label="Next panel">▶</button>
       </div>
-      <p class="hint">Drag inside a panel to pan. Arrow keys nudge the selected panel.</p>
+      <label class="field">
+        <span class="field-label">Photo in this panel</span>
+        <select id="panelPhoto" class="select"></select>
+      </label>
+      <div class="btn-row">
+        <button id="fillAllBtn" class="btn btn-dim" type="button">Use this photo in every panel</button>
+      </div>
+      <p class="hint">Drag on the preview to pan the selected panel; double-click to reset it. Arrow keys nudge it.</p>
     </section>
 
-    <section class="group">
-      <h2 class="group-title">Export size</h2>
-      <div id="sizePicker" class="segmented" role="radiogroup" aria-label="Export size"></div>
-      <div class="row">
-        <button id="exportBtn2" class="btn btn-primary" type="button">Download PNG</button>
+    <section class="card">
+      <h2 class="card-title" id="h-size">6 · Export</h2>
+      <div id="sizeRow" class="seg" role="radiogroup" aria-labelledby="h-size"></div>
+      <div class="btn-row">
+        <button id="exportBtn" class="btn btn-go" type="button">Download PNG</button>
       </div>
+      <p class="hint" id="exportHint">Square 1080 × 1080</p>
     </section>
+
   </aside>
 
-  <section id="stage" class="stage" aria-label="Cover preview">
-    <div class="stage-inner">
-      <canvas id="preview" width="540" height="540" tabindex="0"
-              aria-label="Cover preview. Drag to pan the selected panel or move the lettering. Arrow keys nudge."></canvas>
-      <div class="stage-foot">
-        <span id="stageSize" class="hint"></span>
-        <span class="hint">Drag = pan · Shift+drag = lettering · Double-click = reset panel</span>
-      </div>
+  <section class="stage" aria-label="Cover preview">
+    <div class="stage-frame">
+      <canvas id="preview" width="600" height="600" tabindex="0" role="img"
+              aria-label="Cover preview. Drag to pan the selected panel, or the lettering to move it."></canvas>
     </div>
+    <p class="stage-foot">
+      <span id="stageInfo">Triptych · Sunset · 1080 × 1080</span>
+      <span class="stage-keys">Drag pans · drag lettering moves it · arrows nudge · <kbd>E</kbd> exports</span>
+    </p>
   </section>
 </main>
 
-<script type="module" src="src/main.js"></script>
+<script src="src/cover.js"></script>
+<script src="src/shots.js"></script>
+<script src="src/main.js"></script>
 </body>
 </html>

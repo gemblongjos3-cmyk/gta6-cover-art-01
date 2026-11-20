@@ -1,122 +1,185 @@
 #!/usr/bin/env node
-// shot.mjs — capture a screenshot of the running app with the sandbox's Chrome.
-//
-// This image's Chrome (157, "Muse Browser") refuses to start without the measured
-// WebGL-domain policy, and its --headless --screenshot path writes nothing here, so
-// the tool drives a headful Chrome under Xvfb over the DevTools protocol instead:
-// it opens the URL, waits for the page to settle, and asks for Page.captureScreenshot.
-//
-//   node tools/shot.mjs <url> <out.png> <width> <height> [waitMs]
+/**
+ * tools/shot.mjs — capture one page as a PNG.
+ *
+ *   node tools/shot.mjs <url> <out.png> <width> <height> [waitMs]
+ *
+ * Why not `chrome --headless --screenshot`: that path writes nothing in this
+ * sandbox. This runs a headful Chrome under Xvfb and drives it over the
+ * DevTools protocol instead: launch, attach, set the viewport, navigate, wait
+ * for the page to signal it is ready (data-shot-ready) or for waitMs, then
+ * Page.captureScreenshot.
+ *
+ * Node 22+, standard library only (global WebSocket).
+ */
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
-const POLICY = '/var/lib/hatch-browser/rootfs-base/usr/share/hatch/chromium/webgl-allowed-domains.txt';
 const CHROME = '/opt/meta-chromium/chrome';
-const PORT = 9333;
 
-const [url, out, wArg, hArg, waitArg] = process.argv.slice(2);
-if (!url || !out) {
+// This image's Chrome refuses to start unless it is handed the measured
+// WebGL-domain policy it was built to expect: the shipped allow-list file plus
+// the sha256 of its bytes.
+const POLICY_FILE =
+  '/var/lib/hatch-browser/rootfs-base/usr/share/hatch/chromium/webgl-allowed-domains.txt';
+
+const CHROME_FLAGS = [
+  '--no-sandbox',
+  '--disable-gpu',
+  '--hide-scrollbars',
+  '--password-store=basic',
+  '--use-mock-keychain',
+  '--disable-dev-shm-usage',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+];
+
+if (!existsSync(POLICY_FILE)) {
+  console.error(`shot.mjs: missing Chrome WebGL policy file ${POLICY_FILE}`);
+  process.exit(2);
+}
+const policySha = createHash('sha256').update(readFileSync(POLICY_FILE)).digest('hex');
+
+function usage(msg) {
+  if (msg) console.error(`shot.mjs: ${msg}`);
   console.error('usage: node tools/shot.mjs <url> <out.png> <width> <height> [waitMs]');
   process.exit(2);
 }
-const width = Number(wArg || 1280);
-const height = Number(hArg || 800);
-const waitMs = Number(waitArg || 4000);
 
-const policy = readFileSync(POLICY);
-const policySha = createHash('sha256').update(policy).digest('hex');
-const profile = mkdtempSync(join(tmpdir(), 'makefun-chrome-'));
+const [url, outArg, wArg, hArg, waitArg] = process.argv.slice(2);
+if (!url || !outArg || !wArg || !hArg) usage();
+const width = Number(wArg);
+const height = Number(hArg);
+const waitMs = Number(waitArg ?? 2500);
+if (!Number.isInteger(width) || !Number.isInteger(height) || width < 16 || height < 16) {
+  usage('width and height must be whole numbers');
+}
+if (!Number.isFinite(waitMs) || waitMs < 0) usage('waitMs must be a number of milliseconds');
+
+const outPath = resolve(outArg);
+mkdirSync(dirname(outPath), { recursive: true });
+
+const profile = mkdtempSync(join(tmpdir(), 'vc-shot-'));
+const port = 9300 + Math.floor(Math.random() * 500);
+// xvfb-run's auto display number collides with the stale servers other runs
+// leave behind, so name a display ourselves.
+const display = 200 + Math.floor(Math.random() * 700);
 
 const chrome = spawn(
   'xvfb-run',
   [
-    '-a',
+    '-n', String(display),
+    '--server-args=-screen 0 1920x1600x24',
     CHROME,
-    '--no-sandbox',
-    '--disable-gpu',
-    '--disable-dev-shm-usage',
-    '--hide-scrollbars',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--password-store=basic',
-    '--use-mock-keychain',
-    '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests',
-    '--disable-web-security',
-    '--allow-file-access-from-files',
-    '--allow-file-access',
-    `--hatch-webgl-allowed-domains-file=${POLICY}`,
+    ...CHROME_FLAGS,
+    `--hatch-webgl-allowed-domains-file=${POLICY_FILE}`,
     `--hatch-webgl-allowed-domains-sha256=${policySha}`,
     `--user-data-dir=${profile}`,
-    `--remote-debugging-port=${PORT}`,
-    `--window-size=${width},${height}`,
+    `--remote-debugging-port=${port}`,
+    '--window-size=' + `${width},${height}`,
     'about:blank',
   ],
-  { stdio: 'ignore' },
+  { stdio: ['ignore', 'pipe', 'pipe'] },
 );
+
+let chromeErr = '';
+chrome.stderr.on('data', (b) => { chromeErr += b.toString(); });
+chrome.stdout.on('data', () => {});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function findTarget() {
-  for (let i = 0; i < 80; i++) {
+async function findTarget(timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastErr = '';
+  while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/json/list`);
+      const res = await fetch(`http://127.0.0.1:${port}/json/list`);
       const list = await res.json();
-      const page = list.find((t) => t.type === 'page');
-      if (page) return page.webSocketDebuggerUrl;
+      const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+      if (page) return page;
     } catch (err) {
-      // not up yet
+      lastErr = String(err && err.message ? err.message : err);
     }
-    await sleep(250);
+    await sleep(200);
   }
-  throw new Error('chrome did not expose a page target');
+  throw new Error(`no debuggable page after ${timeoutMs} ms (${lastErr})`);
 }
 
-function connect(wsUrl) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
-    let id = 0;
-    const pending = new Map();
-    ws.onopen = () =>
-      resolve({
-        send(method, params = {}) {
-          const msgId = ++id;
-          return new Promise((res, rej) => {
-            pending.set(msgId, { res, rej });
-            ws.send(JSON.stringify({ id: msgId, method, params }));
-          });
-        },
-        close() {
-          ws.close();
-        },
+class Cdp {
+  constructor(socket) {
+    this.socket = socket;
+    this.nextId = 1;
+    this.pending = new Map();
+    socket.addEventListener('message', (ev) => {
+      let msg;
+      try { msg = JSON.parse(typeof ev.data === 'string' ? ev.data : ''); } catch { return; }
+      if (msg.id && this.pending.has(msg.id)) {
+        const { resolve: ok, reject: bad } = this.pending.get(msg.id);
+        this.pending.delete(msg.id);
+        if (msg.error) bad(new Error(`${msg.error.message}${msg.error.data ? ': ' + msg.error.data : ''}`));
+        else ok(msg.result);
+      }
+    });
+    socket.addEventListener('close', () => {
+      for (const { reject } of this.pending.values()) reject(new Error('devtools socket closed'));
+      this.pending.clear();
+    });
+  }
+
+  send(method, params = {}) {
+    const id = this.nextId++;
+    const payload = JSON.stringify({ id, method, params });
+    return new Promise((ok, bad) => {
+      this.pending.set(id, { resolve: ok, reject: bad });
+      this.socket.send(payload);
+      setTimeout(() => {
+        if (this.pending.delete(id)) bad(new Error(`${method} timed out`));
+      }, 45000);
+    });
+  }
+
+  async eval(expression) {
+    const r = await this.send('Runtime.evaluate', {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    return r && r.result ? r.result.value : undefined;
+  }
+}
+
+async function connect(wsUrl, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const socket = new WebSocket(wsUrl);
+      await new Promise((ok, bad) => {
+        socket.addEventListener('open', ok, { once: true });
+        socket.addEventListener('error', () => bad(new Error('ws error')), { once: true });
       });
-    ws.onerror = (e) => reject(new Error(`websocket error: ${e.message || 'unknown'}`));
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(String(event.data));
-      if (msg.id && pending.has(msg.id)) {
-        const { res, rej } = pending.get(msg.id);
-        pending.delete(msg.id);
-        if (msg.error) rej(new Error(`${msg.error.message} (${msg.error.code})`));
-        else res(msg.result);
-        return;
-      }
-      if (msg.method === 'Runtime.exceptionThrown') {
-        const d = msg.params.exceptionDetails;
-        console.error(`[page exception] ${d.text} ${(d.exception && d.exception.description) || ''}`);
-      }
-      if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
-        console.error(`[page console] ${msg.params.args.map((a) => a.value ?? a.description).join(' ')}`);
-      }
-    };
-  });
+      return new Cdp(socket);
+    } catch {
+      await sleep(150);
+    }
+  }
+  throw new Error(`could not open devtools socket ${wsUrl}`);
 }
 
-async function main() {
-  const wsUrl = await findTarget();
-  const cdp = await connect(wsUrl);
+function cleanup() {
+  try { chrome.kill('SIGKILL'); } catch { /* already gone */ }
+}
+
+let exitCode = 0;
+try {
+  const target = await findTarget();
+  const cdp = await connect(target.webSocketDebuggerUrl);
 
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
@@ -125,49 +188,51 @@ async function main() {
     height,
     deviceScaleFactor: 1,
     mobile: false,
-  });
-
-  const loaded = new Promise((resolve) => {
-    const started = Date.now();
-    const tick = async () => {
-      try {
-        const r = await cdp.send('Runtime.evaluate', {
-          expression: 'document.readyState === "complete"',
-          returnByValue: true,
-        });
-        if (r.result && r.result.value === true) return resolve(true);
-      } catch (err) {
-        // page still swapping documents
-      }
-      if (Date.now() - started > 15000) return resolve(false);
-      setTimeout(tick, 200);
-    };
-    tick();
+    screenWidth: width,
+    screenHeight: height,
   });
 
   await cdp.send('Page.navigate', { url });
-  await loaded;
-  await sleep(waitMs);
 
-  const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-  writeFileSync(out, Buffer.from(shot.data, 'base64'));
+  // Wait for the page's own ready flag, then a short settle for the font and
+  // any canvas repaint; fall back to the plain wait when it never sets it.
+  const deadline = Date.now() + Math.max(waitMs, 2000);
+  let ready = false;
+  while (Date.now() < deadline) {
+    try {
+      ready = (await cdp.eval("document.documentElement.getAttribute('data-shot-ready') === '1'")) === true;
+    } catch {
+      ready = false;
+    }
+    if (ready) break;
+    await sleep(120);
+  }
+  await sleep(650);
 
-  const check = await cdp.send('Runtime.evaluate', {
-    expression: 'JSON.stringify({w: innerWidth, h: innerHeight, ready: document.documentElement.dataset.shotReady || ""})',
-    returnByValue: true,
+  const probe = await cdp.eval(
+    "JSON.stringify({title: document.title, w: innerWidth, h: innerHeight," +
+    " ready: document.documentElement.getAttribute('data-shot-ready')," +
+    " canvases: [...document.querySelectorAll('canvas')].map(c => c.width + 'x' + c.height)})",
+  );
+  console.log(`page: ${probe}`);
+
+  const shot = await cdp.send('Page.captureScreenshot', {
+    format: 'png',
+    captureBeyondViewport: false,
+    fromSurface: true,
   });
-  console.log(`wrote ${out} ${width}x${height} ${JSON.stringify(check.result && check.result.value)}`);
+  if (!shot || !shot.data) throw new Error('captureScreenshot returned no data');
 
-  cdp.close();
+  const bytes = Buffer.from(shot.data, 'base64');
+  writeFileSync(outPath, bytes);
+  console.log(`${outPath}  ${width}x${height}  ${bytes.length} bytes  ready=${ready}`);
+} catch (err) {
+  exitCode = 1;
+  console.error(`shot.mjs: ${err instanceof Error ? err.message : String(err)}`);
+  if (chromeErr) console.error(chromeErr.split('\n').slice(-10).join('\n'));
+} finally {
+  cleanup();
+  await sleep(300);
+  if (!existsSync(outPath) && exitCode === 0) exitCode = 1;
+  process.exit(exitCode);
 }
-
-main()
-  .catch((err) => {
-    console.error(`shot failed: ${err.message}`);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await sleep(150);
-    chrome.kill('SIGKILL');
-    await sleep(150);
-  });
