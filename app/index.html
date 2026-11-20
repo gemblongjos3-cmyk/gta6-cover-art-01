@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vice Coast Cover Studio — multi-panel cover art</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#stage">Skip to the cover preview</a>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-text">VICE COAST <b>COVER STUDIO</b></span>
+  </div>
+  <p class="tagline">Your photos, six panels of neon, one cover out.</p>
+  <div class="topbar-actions">
+    <span id="status" class="status" role="status" aria-live="polite">Ready</span>
+    <button id="exportBtn" class="btn btn-primary" type="button">Export PNG</button>
+  </div>
+</header>
+
+<main class="workspace">
+  <aside class="sidebar" aria-label="Editor controls">
+    <section class="group">
+      <h2 class="group-title">Photos</h2>
+      <div class="row">
+        <label class="btn btn-file" for="photoInput" tabindex="0">Add photos…</label>
+        <input id="photoInput" class="visually-hidden" type="file" accept="image/*" multiple>
+        <button id="sampleBtn" class="btn" type="button">Load sample set</button>
+      </div>
+      <p class="hint">Photos are read on your own machine. Nothing is uploaded.</p>
+      <ul id="photoList" class="photo-list" aria-label="Photos in this cover"></ul>
+      <div class="row">
+        <button id="clearPhotosBtn" class="btn btn-quiet" type="button">Clear photos</button>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2 class="group-title">Layout</h2>
+      <div id="layoutPicker" class="segmented" role="radiogroup" aria-label="Cover layout"></div>
+      <p id="layoutBlurb" class="hint"></p>
+    </section>
+
+    <section class="group">
+      <h2 class="group-title">Colour grade</h2>
+      <div id="gradePicker" class="segmented" role="radiogroup" aria-label="Colour grade"></div>
+      <p id="gradeBlurb" class="hint"></p>
+    </section>
+
+    <section class="group">
+      <h2 class="group-title">Caption</h2>
+      <label class="field">
+        <span>Title</span>
+        <input id="titleInput" type="text" maxlength="34" value="VICE COAST" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Subtitle</span>
+        <input id="subtitleInput" type="text" maxlength="60" value="SIX NIGHTS ON THE STRIP" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Lettering size</span>
+        <input id="captionSize" type="range" min="0.6" max="1.8" step="0.02" value="1">
+      </label>
+      <div class="row">
+        <button id="captionCenterBtn" class="btn btn-quiet" type="button">Centre lettering</button>
+      </div>
+      <p class="hint">Drag the lettering on the preview to place it.</p>
+    </section>
+
+    <section class="group">
+      <h2 class="group-title">Panel</h2>
+      <p id="panelLabel" class="hint">Panel 1 of 3</p>
+      <label class="field">
+        <span>Zoom</span>
+        <input id="zoomRange" type="range" min="1" max="3" step="0.01" value="1">
+      </label>
+      <div class="row">
+        <button id="fitBtn" class="btn btn-quiet" type="button" aria-pressed="false">Fit photo</button>
+        <button id="fillBtn" class="btn btn-quiet" type="button" aria-pressed="true">Fill panel</button>
+      </div>
+      <div class="row">
+        <button id="resetPanelBtn" class="btn btn-quiet" type="button">Reset crop</button>
+        <button id="panelPrev" class="btn btn-quiet" type="button" aria-label="Previous panel">◀</button>
+        <button id="panelNext" class="btn btn-quiet" type="button" aria-label="Next panel">▶</button>
+      </div>
+      <p class="hint">Drag inside a panel to pan. Arrow keys nudge the selected panel.</p>
+    </section>
+
+    <section class="group">
+      <h2 class="group-title">Export size</h2>
+      <div id="sizePicker" class="segmented" role="radiogroup" aria-label="Export size"></div>
+      <div class="row">
+        <button id="exportBtn2" class="btn btn-primary" type="button">Download PNG</button>
+      </div>
+    </section>
+  </aside>
+
+  <section id="stage" class="stage" aria-label="Cover preview">
+    <div class="stage-inner">
+      <canvas id="preview" width="540" height="540" tabindex="0"
+              aria-label="Cover preview. Drag to pan the selected panel or move the lettering. Arrow keys nudge."></canvas>
+      <div class="stage-foot">
+        <span id="stageSize" class="hint"></span>
+        <span class="hint">Drag = pan · Shift+drag = lettering · Double-click = reset panel</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
