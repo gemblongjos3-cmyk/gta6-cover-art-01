@@ -85,13 +85,17 @@ async function main(): Promise<void> {
   await writeFile(dossierPath, dossier);
 
   const manifest = JSON.parse(new TextDecoder().decode(dossier)) as {
-    app?: { files?: unknown[]; totalBytes?: number };
-    screenshots?: unknown[];
+    cover?: number;
+    images?: unknown[];
+    text?: string;
   };
-  const listed = manifest.app?.files?.length ?? 0;
-  const shots = manifest.screenshots?.length ?? 0;
+  const shots = manifest.images?.length ?? 0;
+  const textBytes = new TextEncoder().encode(manifest.text ?? '').byteLength;
 
-  console.log(`  dossier.json  ${human(dossier.byteLength)} — ${listed} app files, ${shots} screenshots`);
+  console.log(
+    `  dossier.json  ${human(dossier.byteLength)} — ${shots} screenshots, ` +
+      `${human(textBytes)} of text, cover #${manifest.cover ?? 0}`,
+  );
   console.log(`wrote ${relative(process.cwd(), dossierPath) || dossierPath}`);
 }
 

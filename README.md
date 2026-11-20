@@ -1,84 +1,84 @@
-# Vice Coast Cover Studio
-
 [![make.fun · gta6-cover-art-01](https://make.fun/badge/gta6-cover-art-01.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 [![rank](https://make.fun/badge/gta6-cover-art-01/gemblongjos3-cmyk/gta6-cover-art-01/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 [![reward](https://make.fun/badge/gta6-cover-art-01/gemblongjos3-cmyk/gta6-cover-art-01/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 
-A multi-panel cover art maker: drop in your own photos, pick a layout and a colour grade,
-write a caption, and export a poster-sized PNG.
+# Vice Coast Cover Studio
 
-Everything runs in your browser. Photos are read with `FileReader` on your own machine and are
-never uploaded — the app makes no network request at all.
+Turn your own photos into multi-panel, neon-dusk cover art — the kind of poster a
+city-set crime game puts on a shelf — and export it as a PNG in one click.
 
-## What it does
+Three layouts (Triptych, Quad Grid, Hero + Strip), three colour grades (Sunset,
+Neon Night, Vice Fade), per-panel crop, zoom and pan, big condensed lettering you
+can drag anywhere on the sheet, and three export sizes. Everything is drawn by
+one canvas painter, so the live preview, the exported PNG and the screenshots in
+`screenshots/` are the same code path.
 
-- **Three layouts** — *Triptych* (three framed verticals over a title band), *Quad Grid* (2 × 2
-  full-bleed), and *Hero + Strip* (one big panel above two small ones).
-- **Three colour grades** — *Sunset* (warm orange-pink), *Neon Night* (purple-cyan with scanlines),
-  and *Vice Fade* (teal-orange cinema), each blended per panel and finished with halftone, grain
-  and a vignette.
-- **Any photo, per panel** — add several photos at once, then click a panel and fill it. Drag to
-  pan, use the zoom slider, or switch between *fill* and *fit*. Arrow keys nudge the selected panel;
-  double-click resets its crop.
-- **Live caption** — title and subtitle in Anton, with an outlined, gradient-filled treatment.
-  Choose the size, drag the lettering anywhere on the preview, or snap it back to centre.
-- **Export** — one click writes a PNG at 1080 × 1080, 1080 × 1350 or 1920 × 1080.
+Photos never leave the machine. The page makes no network request of any kind:
+the photos come from the file picker or from `app/samples/`, the display font is
+the bundled `app/fonts/Anton-Regular.ttf`, and every gradient, grain tile and
+halftone dot is generated in JavaScript.
 
-The preview and the export come from the same `renderCover()` call in `app/src/cover.js`, which
-draws everything from normalized geometry — so what you see at 560 px is what you get at 1920 px.
+## What's in here
+
+```
+app/                 the whole app — plain static files, open index.html directly
+  index.html         editor: photos, layout, grade, caption, export
+  style.css          the UI's dark, neon-trimmed theme
+  src/cover.js       the renderer: layouts, grades, band, caption, effects
+  src/main.js        editor state and wiring
+  src/shots.js       the ?shot= modes used to capture the screenshots
+  samples/           two bundled photos (generated for this project)
+  fonts/             Anton (SIL Open Font License, see OFL.txt)
+screenshots/         the four captures submitted with the entry
+main.ts              copies app/ and screenshots/ to the output dir, writes dossier.json
+vendor/              the bounty's buildDossier helper (unchanged)
+```
 
 ## Run it
 
-No build step, no dependencies, nothing to install. Serve `app/` with any static server:
+No build step, no dependencies. Open `app/index.html` in desktop Chrome, or serve
+the folder from any static server:
 
 ```sh
-python3 -m http.server -d app 8080     # or: npx serve app
+python3 -m http.server 8000 --directory app
+# then open http://localhost:8000/
 ```
 
-Then open <http://localhost:8080>. Opening `app/index.html` directly from disk with
-`file://` works too — every path in the app is relative.
+Click **Use samples**, or **Choose photos…** to load your own. Pick a layout, a
+grade and an export size, drag the lettering or a panel where you want it, then
+hit **Export PNG** (or press <kbd>E</kbd>).
 
-To produce the submission output (`app/`, `screenshots/` and `dossier.json`):
+## Build the submission
+
+`main.ts` copies `app/` and `screenshots/` beside itself into the output
+directory and writes `dossier.json` from exactly those bytes. Node 22.18+, no
+flags:
 
 ```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
 
-`main.ts` needs Node 22.18 or later (it runs TypeScript directly) and uses the standard library
-only. It copies `app/` and `screenshots/` into the output directory and writes `dossier.json` with
-`buildDossier` from `vendor/makefun-app.ts`, checking the gate's caps on the way (index.html size,
-screenshot count and size, dossier text size).
+It prints each part's file count and size, then the dossier line. Anything over
+the bounty's caps (app ≤ 1 MiB index, screenshots ≤ 256 KiB each, dossier text
+≤ 160 KiB) fails the run with a non-zero exit.
 
-## Layout
+## The screenshot modes
 
-```
-app/
-  index.html          the editor
-  style.css           editor chrome
-  src/main.js         state, controls, drag interaction, PNG export
-  src/cover.js        the renderer: layouts, grades, caption lettering
-  src/shots.js        ?shot= modes used to capture the screenshots
-  fonts/Anton-Regular.ttf   Anton, SIL Open Font License (see OFL.txt)
-  samples/*.png       two sample photos, drawn procedurally by tools/make-samples.mjs
-screenshots/          four captures of the running app
-tools/                capture and probe scripts (development only, not shipped)
-vendor/makefun-app.ts the kit's dossier builder, unchanged
+`index.html?shot=cover-square|cover-tall|cover-wide` renders a finished cover at
+that size through the same painter the editor uses, and
+`index.html?shot=editor` loads both samples into the editor. Each mode sets
+`data-shot-ready` on `<html>` once it is painted, which is what
+`tools/shot.mjs` waits for before capturing:
+
+```sh
+node tools/shot.mjs "file://$PWD/app/index.html?shot=cover-square" out.png 1024 1024
 ```
 
-## Notes on originality
+## Licence
 
-Every font, image and mark here is either made for this project or shipped under a license that
-allows redistribution. The sample photos are generated procedurally by
-`tools/make-samples.mjs` — no photographs of real people and no third-party artwork. The typeface
-is Anton, licensed under the SIL Open Font License 1.1. There is no game logo, wordmark, official
-artwork or font from any commercial title.
-
-## Screenshots
-
-| | |
-|---|---|
-| `1-cover.jpg` — the exported square cover (Triptych + Sunset) | `2-editor.jpg` — the editor with photos loaded |
-| `3-cover-tall.jpg` — a 1080 × 1350 tall cover | `4-cover-wide.jpg` — a 1920 × 1080 wide cover |
+MIT for the code (see `LICENSE`); Anton is under the SIL Open Font License
+(`app/fonts/OFL.txt`). No Rockstar logo, artwork or font is used anywhere — every
+mark in this project is drawn by this project.
 
 ---
 
