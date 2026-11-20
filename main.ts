@@ -69,12 +69,31 @@ async function main(): Promise<void> {
   if (shots.length < 3) {
     fail(`screenshots/ holds ${shots.length} image(s); the gate wants 3 or 4`);
   }
+  if (shots.length > CAPS.screenshots.max) {
+    fail(`screenshots/ holds ${shots.length} images; the gate takes at most ${CAPS.screenshots.max}`);
+  }
+
+  // the gate weighs each screenshot on its own, so name the one that is over
+  for (const name of shots.sort()) {
+    const { size } = await stat(join(OUT_DIR, 'screenshots', name));
+    if (size > CAPS.screenshots.max_bytes) {
+      fail(`screenshots/${name} is ${size} bytes, over the ${CAPS.screenshots.max_bytes}-byte limit`);
+    }
+  }
 
   const dossier = buildDossier(OUT_DIR, CAPS);
   await writeFile(join(OUT_DIR, 'dossier.json'), dossier);
 
+  // dossier.json carries the screenshots as base64, so its file size says nothing
+  // about the source text the judge is shown; report that against its own cap
+  const dossierText = JSON.parse(Buffer.from(dossier).toString('utf8')).text as string;
+  const textBytes = Buffer.byteLength(dossierText, 'utf8');
+  if (textBytes > CAPS.text_max_bytes) {
+    fail(`dossier text is ${textBytes} bytes, over the ${CAPS.text_max_bytes}-byte cap`);
+  }
+
   log(`copied app/ (${appEntries} entries) and screenshots/ (${shots.length} images) to ${OUT_DIR}`);
-  log(`wrote dossier.json (${dossier.length} bytes)`);
+  log(`wrote dossier.json (${dossier.length} bytes, text ${textBytes}/${CAPS.text_max_bytes})`);
 }
 
 await main();
