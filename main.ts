@@ -60,6 +60,11 @@ async function main() {
 
   await cp(APP, join(OUT, 'app'), { recursive: true });
   await cp(SHOTS, join(OUT, 'screenshots'), { recursive: true });
+  // the licence and the entry notes travel with the bundle, so the output dir
+  // is self-describing once app/ and screenshots/ are copied out of it
+  for (const file of ['LICENSE', 'README.md']) {
+    await cp(join(HERE, file), join(OUT, file));
+  }
 
   const owner: Owner = JSON.parse(await readFile(join(HERE, '.makefun/owner.json'), 'utf8'));
   const wallet = owner.wallet || '';
@@ -121,6 +126,8 @@ async function main() {
   console.log(`  text    : title="${written.text.title}"`);
   console.log(`            subtitle="${written.text.subtitle}"`);
   console.log(`            blurb=${written.text.blurb.length} chars`);
+  const outFiles = (await readdir(OUT)).sort();
+  console.log(`  out     : ${outFiles.length} top-level entries (${outFiles.join(', ')})`);
   console.log(`  written : ${outFile}`);
 }
 
