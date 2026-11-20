@@ -3,6 +3,7 @@
 // protocol. Fresh display + fresh CDP port per attempt so no state is reused.
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -94,9 +95,22 @@ function connect(wsUrl) {
   });
 }
 
+// Some Chromium builds (HATCH's Feather VM payload, for one) refuse to boot
+// without a signed "WebGL allowed domains" policy. The app is pure canvas 2D,
+// so an empty, correctly-formed policy is all we need. Builds that do not know
+// these switches ignore them.
+async function writePolicy(dir) {
+  const file = join(dir, 'webgl-domains.txt');
+  const text = 'hatch-webgl-allowed-domains-v1\n';
+  await writeFile(file, text, 'utf8');
+  const sha = createHash('sha256').update(text).digest('hex');
+  return [`--hatch-webgl-allowed-domains-file=${file}`, `--hatch-webgl-allowed-domains-sha256=${sha}`];
+}
+
 async function capture(opts, attempt) {
   const port = await freePort();
   const profile = await mkdtemp(join(tmpdir(), `vcss-${attempt}-`));
+  const policyFlags = await writePolicy(profile);
 
   // Headful Chromium on a private Xvfb screen; xvfb-run picks a free display
   // number and tears it down with the process, so nothing carries over.
@@ -119,10 +133,12 @@ async function capture(opts, attempt) {
       `--user-data-dir=${profile}`,
       `--remote-debugging-port=${port}`,
       `--window-size=${opts.width},${opts.height}`,
+      ...policyFlags,
       'about:blank'
     ],
     {
       env: { ...process.env },
+      detached: true,
       stdio: ['ignore', 'pipe', 'pipe']
     }
   );
@@ -192,7 +208,16 @@ async function capture(opts, attempt) {
     return { ready, bytes: bytes.length };
   } finally {
     if (client) client.close();
-    chrome.kill('SIGKILL');
+    // xvfb-run started a whole process group; kill it as one so nothing lingers.
+    try {
+      process.kill(-chrome.pid, 'SIGKILL');
+    } catch (err) {
+      try {
+        chrome.kill('SIGKILL');
+      } catch (err2) {
+        /* already gone */
+      }
+    }
     await sleep(120);
   }
 }
@@ -205,7 +230,9 @@ async function main() {
     try {
       const res = await capture(opts, attempt);
       console.log(`ok ${opts.out} — ${res.bytes} B (${res.ready})`);
-      return;
+      // the CDP socket and the browser group are gone; exit rather than wait
+      // on any stray handle the child left behind.
+      process.exit(0);
     } catch (err) {
       lastErr = err;
       console.error(`attempt ${attempt + 1} failed: ${err.message}`);

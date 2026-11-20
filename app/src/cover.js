@@ -378,7 +378,6 @@ function renderHero(ctx, w, h, photos, copy) {
     [1, 'rgba(6,12,14,0.92)']
   ]);
   ctx.fillRect(pad, pad, w - pad * 2, heroH);
-  grain(ctx, pad, pad, w - pad * 2, heroH, 0.045, hash(copy.title + 'c'));
   ctx.restore();
 
   // strip
@@ -403,16 +402,33 @@ function renderHero(ctx, w, h, photos, copy) {
     ctx.restore();
   }
 
+  // scrim behind the upper third so the light lettering always has dark
+  // backing, whatever the hero photo's sky happens to be
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad, pad, w - pad * 2, heroH);
+  ctx.clip();
+  ctx.fillStyle = linear(ctx, 0, pad, 0, pad + heroH * 0.50, [
+    [0, 'rgba(5,10,13,0.93)'],
+    [0.62, 'rgba(5,10,13,0.86)'],
+    [0.86, 'rgba(5,10,13,0.55)'],
+    [1, 'rgba(5,10,13,0)']
+  ]);
+  ctx.fillRect(pad, pad, w - pad * 2, heroH * 0.50);
+  // grain last, so the scrim's darkest corner still carries film texture
+  grain(ctx, pad, pad, w - pad * 2, heroH, 0.045, hash(copy.title + 'c'));
+  ctx.restore();
+
   // title on the hero's upper third
   const size = Math.round(w * 0.145);
-  display(ctx, copy.title, pad + w * 0.03, Math.round(h * 0.335), {
+  display(ctx, copy.title, pad + w * 0.03, Math.round(h * 0.315), {
     maxWidth: w - pad * 2 - w * 0.06,
     size,
     colour: INK,
-    shadow: 'rgba(0,40,60,0.65)',
+    shadow: 'rgba(0,40,60,0.75)',
     spacing: Math.round(w * 0.004)
   });
-  const ruleY = Math.round(h * 0.355);
+  const ruleY = Math.round(h * 0.338);
   ctx.fillStyle = 'rgba(255,182,120,0.9)';
   ctx.fillRect(pad + w * 0.03, ruleY, w * 0.16, Math.max(1, h * 0.0022));
   spaced(ctx, copy.subtitle, pad + w * 0.03, ruleY + h * 0.045, {

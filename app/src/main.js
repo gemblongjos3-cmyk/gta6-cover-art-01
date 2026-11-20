@@ -305,6 +305,16 @@ function boot() {
   renderPhotoList();
   drawPreview();
   document.documentElement.setAttribute('data-app-ready', 'editor');
+
+  // ?samples=1 fills the editor with both built-in photos and then signals
+  // readiness, so the editor capture has real content without a click.
+  const wantsSamples = new URLSearchParams(window.location.search).get('samples');
+  if (wantsSamples === '1' || wantsSamples === 'true') {
+    loadSamples().then((samples) => {
+      for (const s of samples) addPhoto(s.label, s.img);
+      document.documentElement.setAttribute('data-shot-ready', 'editor');
+    });
+  }
 }
 
 boot();
