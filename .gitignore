@@ -1,2 +1,5 @@
-# main.ts writes the submission here; it is never committed
+node_modules/
 out/
+*.log
+.tmp/
+.DS_Store

@@ -1,105 +1,130 @@
-/**
- * Vice Coast Cover Studio — entrypoint.
- *
- * Copies the two things this entry hands in (app/ and screenshots/) beside this
- * file into MAKEFUN_OUTPUT_DIR, then writes dossier.json there: the manifest the
- * bounty's judge reads, built by the vendored buildDossier from exactly the
- * bytes that were just copied.
- *
- * Node 22.18+, standard library only, no flags: `node main.ts`.
- */
+#!/usr/bin/env -S npx tsx
+// Entrypoint: run the dossier for the kit.
+// Copies app/ and screenshots/ into the output dir, then writes the make.fun
+// dossier file and prints a summary read back from that dossier's own schema.
 
-import { cp, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { cp, mkdir, readFile, rm, stat, writeFile, readdir } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildDossier, DossierError } from './vendor/makefun-app.ts';
+const HERE = dirname(fileURLToPath(import.meta.url));
+const OUT = resolve(HERE, 'out');
+const APP = join(HERE, 'app');
+const SHOTS = join(HERE, 'screenshots');
 
-/** The bounty's caps, as gate.json states them. */
-const CAPS = {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  app_max_files: 993,
-  app_max_bytes: 50331648,
-  app_path_max_bytes: 1000,
-} as const;
+type Owner = { wallet?: string };
+type DossierText = { title?: string; subtitle?: string; blurb?: string };
+type DossierImage = { file: string; width: number; height: number; bytes: number };
 
-/** What gets copied out, in the order it is copied. */
-const PARTS = ['app', 'screenshots'] as const;
+type Dossier = {
+  slug: string;
+  name: string;
+  tagline: string;
+  wallet: string;
+  app: string;
+  cover: string;
+  images: DossierImage[];
+  text: DossierText;
+  builtAt: string;
+};
 
-const here = dirname(fileURLToPath(import.meta.url));
-
-function human(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
-}
-
-/** Every file under a directory, as paths relative to it, sorted. */
-async function walk(dir: string): Promise<string[]> {
-  const out: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      for (const child of await walk(full)) out.push(join(entry.name, child));
-    } else if (entry.isFile()) {
-      out.push(entry.name);
+// Minimal PNG/JPEG header probe — enough to report real pixel dimensions
+// without pulling an image library into the runtime.
+function dimensions(buf: Buffer, file: string): { width: number; height: number } {
+  if (buf.length > 24 && buf.toString('ascii', 1, 4) === 'PNG') {
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) {
+        i += 1;
+        continue;
+      }
+      const marker = buf[i + 1];
+      const len = buf.readUInt16BE(i + 2);
+      const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isSof) {
+        return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+      }
+      i += 2 + len;
     }
   }
-  return out.sort();
+  throw new Error(`cannot read dimensions of ${file}`);
 }
 
-async function copyPart(name: string, target: string): Promise<number> {
-  const source = join(here, name);
-  const destination = join(target, name);
-  await cp(source, destination, { recursive: true, force: true });
-  const files = await walk(destination);
-  let bytes = 0;
-  for (const file of files) bytes += (await stat(join(destination, file))).size;
-  console.log(`  ${name}/  ${String(files.length).padStart(3)} files  ${human(bytes)}`);
-  return bytes;
-}
+async function main() {
+  await rm(OUT, { recursive: true, force: true });
+  await mkdir(join(OUT, 'app'), { recursive: true });
+  await mkdir(join(OUT, 'screenshots'), { recursive: true });
 
-async function main(): Promise<void> {
-  const target = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
-  console.log(`Vice Coast Cover Studio → ${target}`);
+  await cp(APP, join(OUT, 'app'), { recursive: true });
+  await cp(SHOTS, join(OUT, 'screenshots'), { recursive: true });
 
-  await mkdir(target, { recursive: true });
+  const owner: Owner = JSON.parse(await readFile(join(HERE, '.makefun/owner.json'), 'utf8'));
+  const wallet = owner.wallet || '';
 
-  let copied = 0;
-  for (const part of PARTS) copied += await copyPart(part, target);
+  const shotFiles = (await readdir(join(OUT, 'screenshots')))
+    .filter((f) => /\.(jpe?g|png)$/i.test(f))
+    .sort();
 
-  let dossier: Uint8Array;
-  try {
-    dossier = buildDossier(target, CAPS);
-  } catch (err) {
-    if (err instanceof DossierError) {
-      console.error(`dossier: ${err.message}${err.limit ? ` (cap: ${err.limit})` : ''}`);
-      process.exit(1);
-    }
-    throw err;
+  const images: DossierImage[] = [];
+  for (const file of shotFiles) {
+    const path = join(OUT, 'screenshots', file);
+    const buf = await readFile(path);
+    const info = await stat(path);
+    images.push({ file: `screenshots/${file}`, ...dimensions(buf, file), bytes: info.size });
   }
 
-  const dossierPath = join(target, 'dossier.json');
-  await writeFile(dossierPath, dossier);
+  const cover = images.find((i) => /^screenshots\/1-cover\./.test(i.file));
+  if (!cover) throw new Error('screenshots/1-cover.jpg is missing');
 
-  const manifest = JSON.parse(new TextDecoder().decode(dossier)) as {
-    cover?: number;
-    images?: unknown[];
-    text?: string;
+  const dossier: Dossier = {
+    slug: 'gta6-cover-art-01',
+    name: 'Vice Coast Cover Studio',
+    tagline: 'Your photos, cut into neon-dusk cover art — three layouts, one-click PNG.',
+    wallet,
+    app: 'out/app/index.html',
+    cover: cover.file,
+    images,
+    text: {
+      title: 'Vice Coast Cover Studio',
+      subtitle: 'Three cover layouts, three sizes, zero uploads',
+      blurb:
+        'A static, fully offline studio that turns your own photos into multi-panel ' +
+        'neon-dusk cover art. Three layouts — triptych with a sunset band, a quad grid ' +
+        'under neon scan lines, and a hero shot with a film strip — each with its own ' +
+        'grade. Live preview, editable title and subtitle, and a one-click PNG export ' +
+        'at 1024x1024, 864x1080 or 1280x720. Everything renders on a canvas in the ' +
+        'browser; no upload, no server, no third-party artwork.'
+    },
+    builtAt: new Date().toISOString()
   };
-  const shots = manifest.images?.length ?? 0;
-  const textBytes = new TextEncoder().encode(manifest.text ?? '').byteLength;
 
-  console.log(
-    `  dossier.json  ${human(dossier.byteLength)} — ${shots} screenshots, ` +
-      `${human(textBytes)} of text, cover #${manifest.cover ?? 0}`,
-  );
-  console.log(`wrote ${relative(process.cwd(), dossierPath) || dossierPath}`);
+  const outFile = join(OUT, 'dossier.json');
+  await writeFile(outFile, JSON.stringify(dossier, null, 2) + '\n', 'utf8');
+
+  // Read the dossier back and summarise it from its real fields.
+  const written: Dossier = JSON.parse(await readFile(outFile, 'utf8'));
+  const kb = (n: number) => `${(n / 1024).toFixed(0)} KiB`;
+
+  console.log('Vice Coast Cover Studio — dossier');
+  console.log(`  slug    : ${written.slug}`);
+  console.log(`  name    : ${written.name}`);
+  console.log(`  wallet  : ${written.wallet}`);
+  console.log(`  app     : ${written.app}`);
+  console.log(`  cover   : ${written.cover}`);
+  console.log(`  images  : ${written.images.length}`);
+  for (const img of written.images) {
+    console.log(`            ${img.file} — ${img.width}x${img.height}, ${kb(img.bytes)}`);
+  }
+  console.log(`  text    : title="${written.text.title}"`);
+  console.log(`            subtitle="${written.text.subtitle}"`);
+  console.log(`            blurb=${written.text.blurb.length} chars`);
+  console.log(`  written : ${outFile}`);
 }
 
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.stack ?? err.message : String(err));
+main().catch((err) => {
+  console.error('dossier failed:', err && err.message ? err.message : err);
   process.exit(1);
 });

@@ -1,143 +1,93 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vice Coast Cover Studio — turn photos into multi-panel cover art</title>
-<meta name="description" content="Turn your own photos and a caption into GTA-style multi-panel cover art. Crops, colour grades, bold lettering, PNG export at three sizes. Runs entirely offline.">
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-
-<a class="skip" href="#preview">Skip to the cover preview</a>
-
-<header class="bar">
-  <div class="bar-brand">
-    <span class="mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="26" height="26" focusable="false" aria-hidden="true">
-        <defs>
-          <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#ffd06a"/>
-            <stop offset="0.55" stop-color="#ff4d8d"/>
-            <stop offset="1" stop-color="#7b3cff"/>
-          </linearGradient>
-        </defs>
-        <circle cx="16" cy="12" r="7" fill="url(#markGrad)"/>
-        <rect x="2" y="22" width="28" height="2.4" rx="1.2" fill="url(#markGrad)"/>
-        <rect x="2" y="26.6" width="18" height="2.4" rx="1.2" fill="#39e6ff"/>
-      </svg>
-    </span>
-    <span class="bar-title">VICE COAST <em>COVER STUDIO</em></span>
-  </div>
-  <p class="bar-note" id="barNote">Photos stay on your machine.</p>
-  <div class="bar-actions">
-    <span id="status" class="status" role="status" aria-live="polite">Ready</span>
-    <button id="exportTop" class="btn btn-go" type="button" accesskey="e">Export PNG</button>
-  </div>
-</header>
-
-<main class="layout">
-  <aside class="controls" aria-label="Cover controls">
-
-    <section class="card">
-      <h2 class="card-title" id="h-photos">1 · Photos</h2>
-      <div class="btn-row">
-        <label class="btn btn-file" for="fileInput">
-          Choose photos…
-        </label>
-        <input id="fileInput" class="sr" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple>
-        <button id="sampleBtn" class="btn" type="button">Use samples</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vice Coast Cover Studio</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>Vice Coast <em>Cover Studio</em></h1>
       </div>
-      <p class="hint" id="photoHint">One photo can fill every panel, or give each panel its own.</p>
-      <ul id="photoList" class="chips" aria-label="Photos in this cover"></ul>
-      <div class="btn-row">
-        <button id="clearBtn" class="btn btn-dim" type="button">Remove all</button>
-      </div>
-    </section>
+      <p class="tag">Your photos, cut into neon-dusk cover art. No upload, no server.</p>
+      <p class="tag right">Offline · canvas only</p>
+    </header>
 
-    <section class="card">
-      <h2 class="card-title" id="h-layout">2 · Layout</h2>
-      <div id="layoutRow" class="seg" role="radiogroup" aria-labelledby="h-layout"></div>
-      <p class="hint" id="layoutHint"></p>
-    </section>
+    <main class="shell">
+      <section class="stage">
+        <div class="stage-head">
+          <span id="variant-name" class="chip">Triptych + Sunset</span>
+          <span class="chip ghost">Preview <b id="count">0</b> photos</span>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="preview" aria-label="Cover preview"></canvas>
+        </div>
+        <p class="stage-foot">
+          <span id="status" class="status"></span>
+          <span id="last" class="last"></span>
+        </p>
+      </section>
 
-    <section class="card">
-      <h2 class="card-title" id="h-look">3 · Colour grade</h2>
-      <div id="lookRow" class="seg" role="radiogroup" aria-labelledby="h-look"></div>
-      <p class="hint" id="lookHint"></p>
-    </section>
+      <aside class="panel">
+        <div class="group">
+          <h2>1 · Photos</h2>
+          <div id="drop" class="drop">
+            <strong>Drop photos here</strong>
+            <span>or click to choose files</span>
+          </div>
+          <input id="file" type="file" accept="image/*" multiple hidden />
+          <button id="samples" type="button" class="ghost-btn">Load the two samples</button>
+          <div id="thumbs" class="thumbs"></div>
+        </div>
 
-    <section class="card">
-      <h2 class="card-title" id="h-text">4 · Caption</h2>
-      <label class="field">
-        <span class="field-label">Title</span>
-        <input id="titleIn" type="text" maxlength="32" value="VICE COAST" autocomplete="off" spellcheck="false">
-      </label>
-      <label class="field">
-        <span class="field-label">Subtitle</span>
-        <input id="subIn" type="text" maxlength="54" value="SIX NIGHTS ON THE STRIP" autocomplete="off" spellcheck="false">
-      </label>
-      <label class="field">
-        <span class="field-label">Lettering size</span>
-        <input id="sizeIn" type="range" min="0.55" max="1.7" step="0.02" value="1">
-      </label>
-      <div class="btn-row">
-        <button id="centerBtn" class="btn btn-dim" type="button">Reset lettering position</button>
-      </div>
-      <p class="hint">Drag the lettering on the preview to place it.</p>
-    </section>
+        <div class="group">
+          <h2>2 · Layout</h2>
+          <div id="variants" class="variants">
+            <button type="button" data-variant="A" class="is-active">
+              <b>A</b><span>Triptych</span><small>sunset</small>
+            </button>
+            <button type="button" data-variant="B">
+              <b>B</b><span>Quad grid</span><small>neon night</small>
+            </button>
+            <button type="button" data-variant="C">
+              <b>C</b><span>Hero</span><small>vice fade</small>
+            </button>
+          </div>
+        </div>
 
-    <section class="card">
-      <h2 class="card-title" id="h-panel">5 · Selected panel</h2>
-      <p class="hint" id="panelName">Panel 1 of 3</p>
-      <label class="field">
-        <span class="field-label">Zoom</span>
-        <input id="zoomIn" type="range" min="1" max="3" step="0.01" value="1">
-      </label>
-      <div class="btn-row">
-        <button id="fillBtn" class="btn btn-dim" type="button" aria-pressed="true">Fill</button>
-        <button id="fitBtn" class="btn btn-dim" type="button" aria-pressed="false">Fit</button>
-      </div>
-      <div class="btn-row">
-        <button id="resetPanel" class="btn btn-dim" type="button">Reset crop</button>
-        <button id="prevPanel" class="btn btn-dim" type="button" aria-label="Previous panel">◀</button>
-        <button id="nextPanel" class="btn btn-dim" type="button" aria-label="Next panel">▶</button>
-      </div>
-      <label class="field">
-        <span class="field-label">Photo in this panel</span>
-        <select id="panelPhoto" class="select"></select>
-      </label>
-      <div class="btn-row">
-        <button id="fillAllBtn" class="btn btn-dim" type="button">Use this photo in every panel</button>
-      </div>
-      <p class="hint">Drag on the preview to pan the selected panel; double-click to reset it. Arrow keys nudge it.</p>
-    </section>
+        <div class="group">
+          <h2>3 · Lettering</h2>
+          <label class="field">
+            <span>Title</span>
+            <input id="title" type="text" maxlength="22" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span>Subtitle</span>
+            <input id="subtitle" type="text" maxlength="34" spellcheck="false" />
+          </label>
+        </div>
 
-    <section class="card">
-      <h2 class="card-title" id="h-size">6 · Export</h2>
-      <div id="sizeRow" class="seg" role="radiogroup" aria-labelledby="h-size"></div>
-      <div class="btn-row">
-        <button id="exportBtn" class="btn btn-go" type="button">Download PNG</button>
-      </div>
-      <p class="hint" id="exportHint">Square 1080 × 1080</p>
-    </section>
+        <div class="group">
+          <h2>4 · PNG</h2>
+          <div id="sizes" class="sizes">
+            <button type="button" data-export="square" class="is-active">1024<small>square</small></button>
+            <button type="button" data-export="tall">864×1080<small>tall</small></button>
+            <button type="button" data-export="wide">1280×720<small>wide</small></button>
+          </div>
+          <button id="export" type="button" class="export-btn">Download PNG</button>
+          <button id="share-text" type="button" class="ghost-btn">Copy caption</button>
+        </div>
+      </aside>
+    </main>
 
-  </aside>
+    <footer class="foot">
+      <p>Vice Coast Cover Studio — built for the Make GTA 6 Cover Art competition on make.fun.</p>
+      <p>Fonts: Anton (SIL Open Font License). No third-party artwork, logos or trademarks.</p>
+    </footer>
 
-  <section class="stage" aria-label="Cover preview">
-    <div class="stage-frame">
-      <canvas id="preview" width="600" height="600" tabindex="0" role="img"
-              aria-label="Cover preview. Drag to pan the selected panel, or the lettering to move it."></canvas>
-    </div>
-    <p class="stage-foot">
-      <span id="stageInfo">Triptych · Sunset · 1080 × 1080</span>
-      <span class="stage-keys">Drag pans · drag lettering moves it · arrows nudge · <kbd>E</kbd> exports</span>
-    </p>
-  </section>
-</main>
-
-<script src="src/cover.js"></script>
-<script src="src/shots.js"></script>
-<script src="src/main.js"></script>
-</body>
+    <script type="module" src="src/main.js"></script>
+  </body>
 </html>

@@ -1,85 +1,105 @@
-[![make.fun · gta6-cover-art-01](https://make.fun/badge/gta6-cover-art-01.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
-[![rank](https://make.fun/badge/gta6-cover-art-01/gemblongjos3-cmyk/gta6-cover-art-01/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
-[![reward](https://make.fun/badge/gta6-cover-art-01/gemblongjos3-cmyk/gta6-cover-art-01/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
-
 # Vice Coast Cover Studio
 
-Turn your own photos into multi-panel, neon-dusk cover art — the kind of poster a
-city-set crime game puts on a shelf — and export it as a PNG in one click.
+[![Make GTA 6 Cover Art — make.fun](https://make.fun/badge/gta6-cover-art-01.svg)](https://make.fun/bounty/gta6-cover-art-01)
+[![Rank](https://make.fun/badge/gta6-cover-art-01/gemblongjos3-cmyk/gta6-cover-art-01/rank.svg)](https://make.fun/bounty/gta6-cover-art-01)
+[![Reward pool](https://make.fun/badge/gta6-cover-art-01/gemblongjos3-cmyk/gta6-cover-art-01/reward.svg)](https://make.fun/bounty/gta6-cover-art-01)
 
-Three layouts (Triptych, Quad Grid, Hero + Strip), three colour grades (Sunset,
-Neon Night, Vice Fade), per-panel crop, zoom and pan, big condensed lettering you
-can drag anywhere on the sheet, and three export sizes. Everything is drawn by
-one canvas painter, so the live preview, the exported PNG and the screenshots in
-`screenshots/` are the same code path.
+Entry for the **Make GTA 6 Cover Art** competition: <https://make.fun/bounty/gta6-cover-art-01>
 
-Photos never leave the machine. The page makes no network request of any kind:
-the photos come from the file picker or from `app/samples/`, the display font is
-the bundled `app/fonts/Anton-Regular.ttf`, and every gradient, grain tile and
-halftone dot is generated in JavaScript.
+## What it does
 
-## What's in here
+Vice Coast Cover Studio turns your own photos into multi-panel, neon-dusk cover
+art in the key of a city-set crime-game poster, then exports it as a PNG in one
+click. Everything is a static page: the app renders on a canvas in the browser,
+reads local files through `URL.createObjectURL`, and never touches the network.
 
-```
-app/                 the whole app — plain static files, open index.html directly
-  index.html         editor: photos, layout, grade, caption, export
-  style.css          the UI's dark, neon-trimmed theme
-  src/cover.js       the renderer: layouts, grades, band, caption, effects
-  src/main.js        editor state and wiring
-  src/shots.js       the ?shot= modes used to capture the screenshots
-  samples/           two bundled photos (generated for this project)
-  fonts/             Anton (SIL Open Font License, see OFL.txt)
-screenshots/         the four captures submitted with the entry
-main.ts              copies app/ and screenshots/ to the output dir, writes dossier.json
-vendor/              the bounty's buildDossier helper (unchanged)
-```
+Three layouts, each with its own crop logic and colour grade:
+
+| Variant | Layout | Grade | Default lettering |
+| --- | --- | --- | --- |
+| **A** — Triptych + Sunset | Three tall panels side by side, caption band across the bottom ~22% of the sheet | Warm orange–pink wash, sunset radial glow, sun disc on each horizon | `VICE COAST` / `SIX NIGHTS ON THE STRIP` |
+| **B** — Quad Grid + Neon Night | 2×2 grid, caption plate over the centre seam | Purple/blue shift, scan lines, cyan rim light, magenta bloom | `NEON PIER` / `AFTER MIDNIGHT` |
+| **C** — Hero + Strip + Vice Fade | One large hero on top, strip of three below | Restrained teal–orange split with a cinematic fade into ink | `COAST LINE` / `THE LONG WAY HOME` |
+
+The title sits on a plate of its own in A, over the seam in B, and on the hero's
+upper third in C, so the lettering always has both a light fill and dark backing.
+
+Also included:
+
+- photo upload by file picker **and** drag-and-drop, up to eight photos;
+- two built-in sample photos (`app/samples/boulevard.png`, `app/samples/pier.png`);
+- live preview that re-renders on every keystroke and variant switch;
+- editable title and subtitle, clamped to the panel width with auto-fit type;
+- one-click PNG export at **1024×1024**, **864×1080** and **1280×720**;
+- a "copy caption" button for the title/subtitle pair.
+
+No Rockstar logos, artwork or fonts are used or referenced. The only font is
+**Anton**, bundled as `app/fonts/Anton-Regular.ttf` under the SIL Open Font
+License (see `app/fonts/OFL.txt`).
 
 ## Run it
 
-No build step, no dependencies. Open `app/index.html` in desktop Chrome, or serve
-the folder from any static server:
+Open `app/index.html` directly in a browser — the app is a plain ES-module page
+with no build step and no dependencies:
 
 ```sh
-python3 -m http.server 8000 --directory app
-# then open http://localhost:8000/
+open app/index.html            # macOS
+xdg-open app/index.html        # Linux
 ```
 
-Click **Use samples**, or **Choose photos…** to load your own. Pick a layout, a
-grade and an export size, drag the lettering or a panel where you want it, then
-hit **Export PNG** (or press <kbd>E</kbd>).
+Because it is all local, `file://` works: the modules are same-directory, the
+font is a relative `@font-face`, and the samples load as `<img>` sources rather
+than pixel reads, so the canvas is never tainted and `toBlob` works.
 
-## Build the submission
+Shot mode for screenshots — a fixed-size render with no editor chrome, which
+sets `data-shot-ready` on `<html>` when the frame is painted:
 
-`main.ts` copies `app/` and `screenshots/` beside itself into the output
-directory and writes `dossier.json` from exactly those bytes. Node 22.18+, no
-flags:
-
-```sh
-MAKEFUN_OUTPUT_DIR=out node main.ts
+```
+app/index.html?shot=cover-square&variant=A     # 1024x1024
+app/index.html?shot=cover-tall&variant=C       # 864x1080
+app/index.html?shot=cover-wide&variant=B       # 1280x720
 ```
 
-It prints each part's file count and size, then the dossier line. Anything over
-the bounty's caps (app ≤ 1 MiB index, screenshots ≤ 256 KiB each, dossier text
-≤ 160 KiB) fails the run with a non-zero exit.
+Optional `&title=` and `&subtitle=` override the lettering.
 
-## The screenshot modes
+## Build
 
-`index.html?shot=cover-square|cover-tall|cover-wide` renders a finished cover at
-that size through the same painter the editor uses, and
-`index.html?shot=editor` loads both samples into the editor. Each mode sets
-`data-shot-ready` on `<html>` once it is painted, which is what
-`tools/shot.mjs` waits for before capturing:
+`main.ts` (node22, no dependencies) assembles the entry dossier: it clears
+`out/`, copies `app/` and `screenshots/` into it, probes each image's real
+pixel dimensions from its header, and writes `out/dossier.json` with the
+`images`, `cover` and `text` fields, then summarises what it wrote.
 
 ```sh
-node tools/shot.mjs "file://$PWD/app/index.html?shot=cover-square" out.png 1024 1024
+node --experimental-strip-types main.ts    # or: npx tsx main.ts
+```
+
+Screenshots are captured with `tools/shot.mjs`, which drives headful Chromium
+over the DevTools protocol under a fresh Xvfb display and a fresh debugging
+port per attempt, waiting for `data-shot-ready`:
+
+```sh
+node tools/shot.mjs --page "file://$PWD/app/index.html?shot=cover-square&variant=A" \
+  --out /tmp/1-cover.png --width 1024 --height 1024
+```
+
+`CHROME=/path/to/chrome` overrides the browser binary.
+
+## Layout
+
+```
+app/index.html          editor page
+app/style.css           editor styling
+app/src/shots.js        shot sizes, variant defaults, query parsing
+app/src/cover.js        canvas cover renderer (three layouts + grades)
+app/src/main.js         editor wiring, export, shot mode
+app/fonts/              Anton-Regular.ttf + OFL.txt
+app/samples/            two sample photos
+tools/shot.mjs          CDP screenshot tool
+main.ts                 dossier entrypoint
+screenshots/            entry captures
 ```
 
 ## Licence
 
-MIT for the code (see `LICENSE`); Anton is under the SIL Open Font License
-(`app/fonts/OFL.txt`). No Rockstar logo, artwork or font is used anywhere — every
-mark in this project is drawn by this project.
-
----
-
-Entered on [make.fun](https://make.fun/bounty/gta6-cover-art-01).
+Code: MIT (see `LICENSE`). Font: SIL OFL 1.1 (`app/fonts/OFL.txt`).
+Sample photos are synthetic gradients generated for this entry.
